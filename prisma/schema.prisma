@@ -1,0 +1,16 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Proxy {
+  id        Int     @id @default(autoincrement())
+  ip        String
+  port      Int
+  login     String
+  password  String
+}
