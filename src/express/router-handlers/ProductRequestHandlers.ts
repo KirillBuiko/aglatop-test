@@ -16,9 +16,9 @@ export class ProductRequestHandlers {
             this.get5000Products.bind(this)])
     }
 
-    private async get5000Products(req, res, _){
+    private async get5000Products(_, res, __){
         const response = await this.productActions.requestProducts(
-            Array(10).fill(1).map((v,i) => i));
+            Array(5000).fill(1).map((v,i) => v + i));
         this.expressRequestResultHandler(response, res);
     }
 

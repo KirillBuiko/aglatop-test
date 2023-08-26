@@ -1,21 +1,23 @@
 import {IDBController} from "@/action-handlers/interfaces/IDBController";
 import {ProductData, ProductResponseData, ProxyInfo, ResponseData} from "@/types/DataTypes";
-import {ProductRequestController} from "@/request-controllers/ProductRequestController";
+import {ProductRequester} from "@/request-controllers/ProductRequester";
 import {IProductRequestController} from "@/action-handlers/interfaces/IProductRequestController";
 import {Configs} from "@/Configs";
 import ResultCode from "@/types/ResultCode";
+import {promiseWait} from "@/action-handlers/utils";
 
 export class ProductActions {
-    productRequestController: IProductRequestController;
+    private productRequestController: IProductRequestController;
 
     constructor(private dbController: IDBController) {
-        this.productRequestController = new ProductRequestController();
+        this.productRequestController = new ProductRequester();
     }
 
     async requestProducts(articles: number[]): Promise<ResponseData<ProductResponseData>> {
         try {
             const proxies = await this.dbController.proxy.getProxies();
-            return (new ProductsProxyDistributor(this.productRequestController, articles, proxies)).makeRequest();
+            return (new ProductsProxyDistributor(this.productRequestController, articles, proxies))
+                .distributeAndRequestProducts();
         } catch {
             return {code: ResultCode.FAIL}
         }
@@ -27,9 +29,8 @@ class ProductsProxyDistributor {
     private readonly productsStep: number;
     private readonly maxStep: number;
     private readonly requestResult: ResponseData<ProductData>[];
-    private requestResolveFunction;
     private completedCount: number;
-    private stepCount: number;
+    private stepIndex: number;
 
     constructor(private productRequestController: IProductRequestController,
                 private articles: number[], private proxies: ProxyInfo[]) {
@@ -39,48 +40,44 @@ class ProductsProxyDistributor {
             Configs.MAX_PROXY_REQUESTS_COUNT
         )
         this.maxStep = Math.ceil(this.productsCount / this.productsStep);
-        this.stepCount = 0;
+        this.stepIndex = 0;
         this.completedCount = 0;
         this.requestResult = [];
+        console.log(this.productsCount, this.productsStep, this.maxStep)
     }
 
-    async makeRequest(): Promise<ResponseData<ProductResponseData>> {
-        const promise = new Promise<ResponseData<ProductResponseData>>(
-            (resolve) => this.requestResolveFunction = resolve);
-        this.proxies.some((proxy) => {
-            this.requestProductsProxyPromise(proxy, this.stepCount);
-        })
-        return promise;
+    async distributeAndRequestProducts(): Promise<ResponseData<ProductResponseData>> {
+        await Promise.all(this.proxies.map((proxy) =>
+            this.requestStepOfProducts(proxy, this.stepIndex++)
+        ));
+        return {code: ResultCode.OK, result: this.requestResult};
     }
 
-    private async requestProductsProxyPromise(proxy: ProxyInfo, currentStep: number) {
-        if (this.stepCount >= this.maxStep) return;
-        this.stepCount++;
-        this.requestProducts(
-            this.articles.slice(this.stepCount * this.productsStep, (this.stepCount + 1) * this.productsStep),
+    private async requestStepOfProducts(proxy: ProxyInfo, currentStep: number) {
+        if (currentStep >= this.maxStep) return;
+        console.log(`Proxy ${proxy.port} started with step ${currentStep}`);
+        const response = await this.requestProducts(
+            this.articles.slice(currentStep * this.productsStep, (currentStep + 1) * this.productsStep),
             proxy
-        ).then((resp) => this.requestProductsProxyPromiseCallback(proxy, resp, currentStep));
-    }
+        )
 
-    private async requestProductsProxyPromiseCallback(proxy: ProxyInfo, response: ResponseData<ProductData>[],
-                                                      currentStep: number) {
-        const a = currentStep * this.productsStep;
-        const b = a + this.productsStep;
-        for (let i = a; i < b; i++) {
-            this.requestResult[i] = response[i - a];
+        const startInd = currentStep * this.productsStep;
+        const endInd = Math.min(startInd + this.productsStep, this.productsCount);
+        for (let i = startInd; i < endInd; i++) {
+            this.requestResult[i] = response[i - startInd];
         }
-        this.completedCount++;
-        if (this.completedCount === this.maxStep) this.requestResolveFunction(this.requestResult);
-        setTimeout(() => {
-            this.requestProductsProxyPromise(proxy, this.stepCount);
-        }, Configs.PROXY_REQUEST_INTERVAL);
+        console.log(`Proxy ${proxy.port} ended with step ${currentStep}`);
+
+        if (this.stepIndex >= this.maxStep) return;
+        await promiseWait(Configs.PROXY_REQUEST_INTERVAL);
+        await this.requestStepOfProducts(proxy, this.stepIndex++);
     }
 
     private async requestProducts(articles: number[], proxy?: ProxyInfo): Promise<ProductResponseData> {
-        return Promise.all(articles.map((article) => this.requestProduct(article, proxy)));
+        return Promise.all(articles.map((article) => this.requestProductWithTries(article, proxy)));
     }
 
-    private async requestProduct(article: number, proxy?: ProxyInfo): Promise<ResponseData<ProductData>> {
+    private async requestProductWithTries(article: number, proxy?: ProxyInfo): Promise<ResponseData<ProductData>> {
         for (let i = 0; i < Configs.PRODUCT_REQUEST_FAIL_TIMES; i++) {
             const response = await this.productRequestController.getProductByArticle(article, proxy);
             // TODO: rework for prod

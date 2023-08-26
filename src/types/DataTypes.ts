@@ -14,7 +14,7 @@ export interface ResponseData<K> {
     result?: K;
 }
 
-export type ProductData = void;
+export type ProductData = number;
 
 export type ProductResponseData = ResponseData<ProductData>[];
 

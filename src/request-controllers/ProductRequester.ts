@@ -4,7 +4,7 @@ import AxiosRequestController from "@/request-controllers/AxiosRequestController
 import {ProductData, ProxyInfo} from "@/types/DataTypes";
 import {IProductRequestController} from "@/action-handlers/interfaces/IProductRequestController";
 
-export class ProductRequestController implements IProductRequestController {
+export class ProductRequester implements IProductRequestController {
     requestController: IRequestController;
     BASE_URL = "https://kaspi.kz"
 

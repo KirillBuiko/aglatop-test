@@ -57,7 +57,9 @@ export default class AxiosRequestController implements IRequestController {
             if (!(err instanceof AxiosError)) {
                 response = {code: ResultCode.FAIL, error: {description: "Unknown error"}};
             } else if (!err.response) {
-                if (err.request) {
+                if( err.code === "ECONNABORTED") {
+                    response = {code: ResultCode.TIMEOUT, error: {description: err.request}};
+                } else if (err.request) {
                     response = {code: ResultCode.CONNECTION_ERROR, error: {description: err.request}};
                 } else {
                     response = {code: ResultCode.CONFIGURATION_ERROR, error: {description: err.message}};
